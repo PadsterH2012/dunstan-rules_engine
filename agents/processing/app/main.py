@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from agent import BaseAgent
+from app.app.agent import BaseAgent
 
 app = FastAPI()
 agent = BaseAgent()
