@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     def __init__(self, content: bytes, dpi: int = config.DEFAULT_DPI):
         self.content = content
-        self.dpi = 150  # Lower resolution for faster processing
+        self.dpi = dpi  # Use provided DPI or default from config
         self.job_dir = os.path.join(config.TEMP_DIR, str(uuid.uuid4()))
         self.pdf_path = os.path.join(self.job_dir, 'input.pdf')
         self.metadata = {}
@@ -251,7 +251,6 @@ class PDFProcessor:
                 self.pdftoppm_path,
                 '-png',               # Options must come first
                 '-r', str(self.dpi),
-                '-j', str(thread_count),
                 self.pdf_path,        # Input PDF file comes after options
                 output_prefix         # Output prefix comes last
             ]

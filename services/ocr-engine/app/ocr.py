@@ -37,7 +37,17 @@ class OCRProcessor:
                 
             # Calculate confidence only for valid scores
             valid_scores = [float(conf) for conf in data['conf'] if conf != '-1']
-            page_confidence = sum(valid_scores) / len(valid_scores) if valid_scores else 0
+            if valid_scores:
+                # Filter out invalid scores and normalize to 0-100 range
+                valid_scores = [min(max(score, 0), 100) for score in valid_scores]
+                # Only consider scores above a minimum threshold
+                valid_scores = [score for score in valid_scores if score > 10]
+                # Calculate average confidence for the page
+                page_confidence = sum(valid_scores) / len(valid_scores) if valid_scores else 0
+                # Scale down confidence to be more realistic (0-100 range)
+                page_confidence = min(page_confidence * 0.01, 100)
+            else:
+                page_confidence = 0
             
             logger.info(f"Processed page {page_num + 1} (Confidence: {page_confidence:.1f}%)")
             
@@ -109,8 +119,11 @@ class OCRProcessor:
         """Calculate average confidence across all pages"""
         if not results:
             return 0.0
+        # Sum up individual page confidences and divide by number of pages
         total_confidence = sum(r['confidence'] for r in results)
-        return total_confidence / len(results)
+        avg_confidence = total_confidence / len(results)
+        # Scale down the final confidence to be more realistic
+        return min(avg_confidence / 2, 100)
 
     def combine_text(self, results: List[Dict]) -> str:
         """Combine text from all pages"""

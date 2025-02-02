@@ -20,7 +20,7 @@ MAX_BATCH_SIZE = 10
 MAX_QUEUE_SIZE = 100
 MAX_RETRIES = 3
 INITIAL_RETRY_DELAY = 1  # seconds
-DEFAULT_DPI = 200  # Lower default DPI for faster processing
+DEFAULT_DPI = 400  # Higher DPI for better OCR accuracy
 
 # OCR Configuration
 TESSERACT_CONFIG = '--oem 1 --psm 3'  # Fast LSTM mode
