@@ -28,6 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add cache control middleware
+@app.middleware("http")
+async def add_cache_control_header(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
+
 # Serve static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
