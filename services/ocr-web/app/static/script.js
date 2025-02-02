@@ -87,6 +87,9 @@ async function handleFile(file) {
         // Upload file
         const response = await fetch('/upload', {
             method: 'POST',
+            headers: {
+                'Accept': 'application/json'
+            },
             body: formData
         });
 
