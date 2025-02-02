@@ -1,70 +1,25 @@
-version: "3.8"
+version: "3.8"  # Specify the version of Docker Compose
+
 services:
-  primary-agent:
-    build:
-      context: ./agents/primary
-      dockerfile: Dockerfile
-    container_name: primary-agent
-    network_mode: host
+  ocr-web:
+    # ... existing config ...
+    volumes:
+      - pdf-chunks:/tmp/pdf-chunks
+
+  processing-agent:
+    build: ./agents/processing
     environment:
-      - REDIS_HOST=localhost
-      - REDIS_PORT=6379
+      - PDF_TEMP_DIR=/tmp/pdf-chunks
+    volumes:
+      - pdf-chunks:/tmp/pdf-chunks
     depends_on:
-      redis:
-        condition: service_healthy
-      ocr-engine:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - redis
 
   redis:
-    image: redis:6-alpine
-    container_name: redis
-    network_mode: host
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  ocr-engine:
-    build:
-      context: ./services/ocr-engine
-      dockerfile: Dockerfile
-    container_name: ocr-engine
-    network_mode: host
-    environment:
-      - PORT=8001  # Run on port 8001
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  ocr-web:
-    build:
-      context: ./services/ocr-web
-      dockerfile: Dockerfile
-    container_name: ocr-web
-    network_mode: host
-    environment:
-      - PORT=3000  # Run on port 3000
-      - OCR_ENGINE_URL=http://localhost:8001
-    depends_on:
-      ocr-engine:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
 volumes:
+  pdf-chunks:
   redis-data:
