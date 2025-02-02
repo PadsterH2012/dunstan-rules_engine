@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict
@@ -30,6 +30,10 @@ app.add_middleware(
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+@app.get("/")
+async def root():
+    return FileResponse("app/static/index.html")
 
 # Configuration
 CHUNK_SIZE = int(os.getenv("PDF_CHUNK_SIZE", "20"))
