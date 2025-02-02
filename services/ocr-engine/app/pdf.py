@@ -17,17 +17,52 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     def __init__(self, content: bytes, dpi: int = config.DEFAULT_DPI):
         self.content = content
-        self.dpi = dpi
+        self.dpi = 150  # Lower resolution for faster processing
         self.job_dir = os.path.join(config.TEMP_DIR, str(uuid.uuid4()))
         self.pdf_path = os.path.join(self.job_dir, 'input.pdf')
         self.metadata = {}
         self.page_count = 0
+        self.pdftoppm_path = '/usr/bin/pdftoppm'  # Use absolute path
 
     async def setup(self):
         """Initialize working directory and save PDF"""
-        os.makedirs(self.job_dir, exist_ok=True)
-        with open(self.pdf_path, 'wb') as f:
-            f.write(self.content)
+        try:
+            # Create and set permissions on job directory
+            os.makedirs(self.job_dir, exist_ok=True)
+            os.chmod(self.job_dir, 0o777)
+            logger.info(f"Created job directory: {self.job_dir}")
+            
+            # Save and validate PDF content
+            if not self.content or len(self.content) == 0:
+                raise Exception("Empty PDF content provided")
+                
+            with open(self.pdf_path, 'wb') as f:
+                f.write(self.content)
+            os.chmod(self.pdf_path, 0o666)
+            
+            # Verify the PDF was saved correctly
+            if not os.path.exists(self.pdf_path):
+                raise Exception(f"Failed to save PDF file at {self.pdf_path}")
+                
+            file_size = os.path.getsize(self.pdf_path)
+            if file_size == 0:
+                raise Exception("Saved PDF file is empty")
+                
+            logger.info(f"Saved PDF file ({file_size} bytes) at {self.pdf_path}")
+            logger.info(f"Job directory contents: {os.listdir(self.job_dir)}")
+            
+            # Verify PDF is readable
+            try:
+                with open(self.pdf_path, 'rb') as f:
+                    header = f.read(5)
+                    if header != b'%PDF-':
+                        raise Exception("File does not appear to be a valid PDF (invalid header)")
+            except Exception as e:
+                raise Exception(f"Failed to validate PDF file: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"Setup failed: {str(e)}")
+            raise
 
     async def validate_pdf(self) -> Tuple[int, Dict]:
         """Validate PDF and extract metadata"""
@@ -74,8 +109,21 @@ class PDFProcessor:
         logger.info("Page count not found in metadata, checking with pdftoppm...")
         
         # First validate PDF by trying to convert first page
-        test_cmd = ['pdftoppm', '-l', '1', '-png', self.pdf_path, os.path.join(self.job_dir, 'test')]
+        if not os.path.exists(self.pdftoppm_path):
+            raise Exception(f"pdftoppm not found at {self.pdftoppm_path}")
+            
+        test_cmd = [
+            self.pdftoppm_path,
+            '-png',           # Options must come first
+            '-r', '150',
+            '-l', '1',
+            self.pdf_path,    # Input PDF file comes after options
+            os.path.join(self.job_dir, 'test')  # Output prefix comes last
+        ]
         try:
+            # Log the command being executed
+            logger.info(f"Executing pdftoppm command: {' '.join(test_cmd)}")
+            
             # Try to generate first page
             process = await asyncio.create_subprocess_exec(
                 *test_cmd,
@@ -83,7 +131,21 @@ class PDFProcessor:
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
+            stdout_text = stdout.decode()
             stderr_text = stderr.decode()
+            
+            # Log command output
+            if stdout_text:
+                logger.info(f"pdftoppm stdout: {stdout_text}")
+            if stderr_text:
+                logger.info(f"pdftoppm stderr: {stderr_text}")
+                
+            # Log the expected output file path
+            test_file = os.path.join(self.job_dir, 'test-1.png')  # Standard pdftoppm output format
+            logger.info(f"Expecting output file at: {test_file}")
+            
+            # Log the job directory contents before waiting
+            logger.info(f"Job directory contents before wait: {os.listdir(self.job_dir)}")
             
             # Check for actual errors in stderr
             error_lines = [
@@ -97,15 +159,33 @@ class PDFProcessor:
                 error_msg = "\n".join(error_lines) if error_lines else "Unknown error"
                 raise Exception(f"Failed to generate test page: {error_msg}")
             
-            # Wait for file generation
-            test_file = os.path.join(self.job_dir, 'test-1.png')
-            max_wait = 5  # Maximum seconds to wait
+            # Wait for file generation with periodic checks
+            max_wait = 15  # Further increased maximum seconds to wait
             wait_time = 0
-            while not os.path.exists(test_file) and wait_time < max_wait:
-                await asyncio.sleep(0.1)
-                wait_time += 0.1
+            found_file = None
             
-            if not os.path.exists(test_file):
+            while wait_time < max_wait:
+                await asyncio.sleep(0.5)  # Longer sleep interval
+                wait_time += 0.5
+                
+                # Log directory contents every second
+                if wait_time % 1 == 0:
+                    contents = os.listdir(self.job_dir)
+                    logger.info(f"Job directory contents at {wait_time}s: {contents}")
+                    
+                    # Look for any PNG file that might be our output
+                    png_files = [f for f in contents if f.endswith('.png')]
+                    if png_files:
+                        found_file = os.path.join(self.job_dir, png_files[0])
+                        break
+            
+            if found_file:
+                # If we found a PNG file, use it regardless of its name
+                test_file = found_file
+                os.chmod(test_file, 0o666)
+                logger.info(f"File found and permissions set: {test_file}")
+                logger.info(f"File size: {os.path.getsize(test_file)} bytes")
+            else:
                 logger.error(f"Test file not found after {max_wait} seconds")
                 logger.error(f"Directory contents: {os.listdir(self.job_dir)}")
                 logger.error(f"Process stdout: {stdout.decode()}")
@@ -119,12 +199,13 @@ class PDFProcessor:
             while True:
                 next_page = self.page_count + 1
                 test_cmd = [
-                    'pdftoppm',
+                    self.pdftoppm_path,
+                    '-png',           # Options must come first
+                    '-r', '150',
                     '-f', str(next_page),
                     '-l', str(next_page),
-                    '-png',
-                    self.pdf_path,
-                    os.path.join(self.job_dir, f'test_{next_page}')
+                    self.pdf_path,    # Input PDF file comes after options
+                    os.path.join(self.job_dir, f'test_{next_page}')  # Output prefix comes last
                 ]
                 
                 process = await asyncio.create_subprocess_exec(
@@ -134,14 +215,24 @@ class PDFProcessor:
                 )
                 await process.communicate()
                 
-                # Wait briefly for file generation
-                test_file = os.path.join(self.job_dir, f'test_{next_page}-1.png')
-                await asyncio.sleep(0.1)
+                # Wait for file generation and check for any new PNG files
+                await asyncio.sleep(0.5)  # Increased wait time
                 
-                if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
-                    self.page_count += 1
-                    os.remove(test_file)  # Clean up test file
+                # Get current PNG files
+                contents = os.listdir(self.job_dir)
+                png_files = [f for f in contents if f.endswith('.png')]
+                
+                if png_files:
+                    test_file = os.path.join(self.job_dir, png_files[0])
+                    if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
+                        os.chmod(test_file, 0o666)
+                        self.page_count += 1
+                        os.remove(test_file)  # Clean up test file
+                        logger.info(f"Found page {self.page_count}")
+                    else:
+                        break
                 else:
+                    # No PNG file found, means we've reached the end
                     break
             
             logger.info(f"Counted {self.page_count} pages manually")
@@ -157,18 +248,13 @@ class PDFProcessor:
             output_prefix = os.path.join(self.job_dir, 'page')
             
             cmd = [
-                'pdftoppm',
-                '-png' if config.PDF_OPTIONS['png'] else '-jpeg',
-                f'-r{self.dpi}',
-                '-thread', str(thread_count),
-                '-progress' if config.PDF_OPTIONS['progress'] else None,
-                '-verbose' if config.PDF_OPTIONS['verbose'] else None,
-                '-aa', 'yes' if config.PDF_OPTIONS['anti_alias'] else 'no',
-                '-cropbox' if config.PDF_OPTIONS['cropbox'] else None,
-                self.pdf_path,
-                output_prefix
+                self.pdftoppm_path,
+                '-png',               # Options must come first
+                '-r', str(self.dpi),
+                '-j', str(thread_count),
+                self.pdf_path,        # Input PDF file comes after options
+                output_prefix         # Output prefix comes last
             ]
-            cmd = [arg for arg in cmd if arg is not None]  # Remove None values
             
             logger.info(f"Running pdftoppm command: {' '.join(cmd)}")
             
@@ -202,58 +288,114 @@ class PDFProcessor:
             
             return_code = await process.wait()
             
+            # Log all output for debugging
+            logger.info("pdftoppm process completed")
+            logger.info(f"Return code: {return_code}")
+            logger.info(f"Full stdout: {stdout_data}")
+            logger.info(f"Full stderr: {stderr_data}")
+            
             # Check for actual errors in stderr
             error_lines = [
                 line for line in stderr_data 
-                if not line.startswith('pdftoppm version') and 
-                   not line.startswith('Copyright') and
-                   'Error' in line
+                if line and not line.startswith('pdftoppm version') and 
+                   not line.startswith('Copyright')
             ]
             
-            if return_code != 0 or error_lines:
-                error_msg = "\n".join(error_lines) if error_lines else "Unknown error"
-                logger.error(f"pdftoppm failed with return code {return_code}")
-                logger.error(f"stdout: {stdout_data}")
-                logger.error(f"stderr: {error_msg}")
+            if return_code != 0:
+                error_msg = "\n".join(error_lines) if error_lines else f"Process failed with return code {return_code}"
+                logger.error(f"pdftoppm failed: {error_msg}")
                 raise Exception(f"PDF conversion failed: {error_msg}")
             
-            return await self._load_images(output_prefix)
+            if error_lines:
+                logger.warning(f"pdftoppm warnings: {error_lines}")
+            
+            # Wait for file generation with periodic checks
+            max_wait = 60  # Even longer wait time for full conversion
+            wait_time = 0
+            found_files = []
+            last_count = 0
+            
+            logger.info(f"Starting to wait for {self.page_count} pages to be generated")
+            while wait_time < max_wait:
+                await asyncio.sleep(2.0)  # Longer sleep interval for batch processing
+                wait_time += 2.0
+                
+                try:
+                    # Get current PNG files
+                    contents = os.listdir(self.job_dir)
+                    logger.info(f"Job directory contents at {wait_time}s: {contents}")
+                    
+                    # Look for PNG files with standard pdftoppm naming
+                    png_files = sorted([f for f in contents if f.endswith('.png') and f.startswith('page-')])
+                    current_count = len(png_files)
+                    
+                    if current_count > last_count:
+                        logger.info(f"Found {current_count} pages out of {self.page_count}")
+                        last_count = current_count
+                        
+                        # Set permissions on new files
+                        for png_file in png_files[len(found_files):]:
+                            file_path = os.path.join(self.job_dir, png_file)
+                            if os.path.exists(file_path):
+                                try:
+                                    os.chmod(file_path, 0o666)
+                                    found_files.append(file_path)
+                                    logger.info(f"Added file: {file_path}")
+                                except Exception as e:
+                                    logger.error(f"Error setting permissions on {file_path}: {str(e)}")
+                    
+                    # If we have all expected pages, we're done
+                    if current_count >= self.page_count:
+                        logger.info(f"Found all {self.page_count} pages")
+                        break
+                        
+                    # If no new files in a while, check if process is still running
+                    if wait_time > 10 and current_count == 0:
+                        logger.warning("No files generated after 10 seconds")
+                        
+                except Exception as e:
+                    logger.error(f"Error checking directory contents: {str(e)}")
+            
+            if not found_files:
+                logger.error(f"No PNG files found after {max_wait} seconds")
+                logger.error(f"Final directory contents: {os.listdir(self.job_dir)}")
+                raise Exception("PDF conversion failed: No output files generated")
+            
+            if len(found_files) < self.page_count:
+                logger.warning(f"Only found {len(found_files)} pages out of {self.page_count}")
+            
+            # Load images from the files we found
+            images = []
+            for file_path in sorted(found_files):
+                try:
+                    logger.info(f"Loading image: {file_path}")
+                    with Image.open(file_path) as img:
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        images.append(img.copy())
+                    os.remove(file_path)
+                except Exception as e:
+                    logger.error(f"Error loading image {file_path}: {str(e)}")
+            
+            if not images:
+                raise Exception(f"No images were successfully converted from the {self.page_count} page PDF")
+            
+            return images
             
         except Exception as e:
             logger.error(f"Error converting PDF to images: {str(e)}", exc_info=True)
             raise
 
-    async def _load_images(self, output_prefix: str) -> List[Image.Image]:
-        """Load generated PNG files into memory"""
-        images = []
-        for i in range(1, self.page_count + 1):
-            png_path = f"{output_prefix}-{str(i).zfill(6)}.png"
-            try:
-                if not os.path.exists(png_path):
-                    logger.error(f"Expected PNG file not found: {png_path}")
-                    continue
-                
-                logger.info(f"Loading image {i}/{self.page_count}: {png_path}")
-                with Image.open(png_path) as img:
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    images.append(img.copy())
-                
-                os.remove(png_path)
-                
-            except Exception as e:
-                logger.error(f"Error loading image {png_path}: {str(e)}", exc_info=True)
-        
-        if not images:
-            raise Exception(f"No images were successfully converted from the {self.page_count} page PDF")
-        
-        return images
-
     async def cleanup(self):
         """Clean up temporary files"""
         try:
-            shutil.rmtree(self.job_dir)
-            logger.info(f"Cleaned up temporary directory: {self.job_dir}")
+            if os.path.exists(self.job_dir):
+                # Log directory contents before cleanup
+                logger.info(f"Directory contents before cleanup: {os.listdir(self.job_dir)}")
+                shutil.rmtree(self.job_dir)
+                logger.info(f"Cleaned up temporary directory: {self.job_dir}")
+            else:
+                logger.info(f"Job directory {self.job_dir} already removed")
         except Exception as e:
             logger.error(f"Error cleaning up directory {self.job_dir}: {str(e)}")
 

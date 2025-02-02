@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y \
 
 # Create and set permissions for temp directory
 RUN mkdir -p /tmp/ocr-work && \
-    chmod 777 /tmp/ocr-work
+    chmod 777 /tmp/ocr-work && \
+    chown -R nobody:nogroup /tmp/ocr-work
 
 # Set temp directory with write permissions
 ENV TMPDIR=/tmp/ocr-work
