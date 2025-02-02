@@ -1,40 +1,61 @@
 # Agent Model Configurations
 
-# OCR Processing Configurations
-ocr_fast:
+# PDF Preprocessing Configurations
+pdf_split:
+  chunk_size: 20  # pages per chunk
+  overlap: 2      # overlapping pages between chunks
+  formats:
+    - png        # for better quality
+    - jpeg       # for smaller size
+  quality:
+    png: 95
+    jpeg: 85
+  max_dimensions:
+    width: 2048
+    height: 2048
+
+# Direct PDF Processing Configurations
+pdf_fast:
   provider: openai
-  model: gpt-3.5-turbo  # Base model for text processing
+  model: gpt-4-vision-preview
   config:
     max_tokens: 4096
     temperature: 0.2
+    max_pages_per_request: 2
   fallback:
     provider: anthropic
-    model: claude-3-sonnet
+    model: claude-3-opus
+    config:
+      max_pages_per_request: 3
 
-ocr_accurate:
+pdf_accurate:
   providers:
     - provider: openai
-      model: gpt-4-turbo  # More capable text processing
+      model: gpt-4-vision-preview
       weight: 0.4
       config:
         max_tokens: 4096
         temperature: 0.1
+        max_pages_per_request: 2
     - provider: anthropic
       model: claude-3-opus
       weight: 0.4
       config:
         max_tokens: 4096
         temperature: 0.1
-    - provider: ollama
-      model: mistral  # Local text processing
+        max_pages_per_request: 3
+    - provider: deepseek
+      model: deepseek-vision
       weight: 0.2
       config:
-        gpu: true
+        max_tokens: 4096
+        temperature: 0.1
+        max_pages_per_request: 2
 
 # Validation Configurations
 validation_standard:
   provider: openai
-  model: gpt-4-turbo
+  model: gpt-4-turbo-preview
   config:
     max_tokens: 4096
     temperature: 0.1
@@ -45,7 +66,7 @@ validation_standard:
 validation_consensus:
   providers:
     - provider: openai
-      model: gpt-4-turbo
+      model: gpt-4-turbo-preview
       weight: 0.5
       config:
         max_tokens: 4096
@@ -58,30 +79,37 @@ validation_consensus:
         temperature: 0.1
 
 # Cost-Optimized Processing
-ocr_budget:
+pdf_budget:
   provider: openai
-  model: gpt-3.5-turbo
+  model: gpt-4-vision-preview
   config:
     max_tokens: 2048
     temperature: 0.2
+    max_pages_per_request: 1
   fallback:
-    provider: ollama
-    model: mistral
+    provider: openrouter
+    model: anthropic/claude-3-opus
     config:
-      gpu: true
+      max_tokens: 2048
+      temperature: 0.2
+      max_pages_per_request: 1
 
 # High-Performance Processing
-ocr_performance:
+pdf_performance:
+  chunk_parallel: true  # Process multiple chunks in parallel
+  max_parallel_chunks: 3
   providers:
     - provider: openai
-      model: gpt-4-turbo
+      model: gpt-4-vision-preview
       weight: 0.6
       config:
         max_tokens: 4096
         temperature: 0.1
-    - provider: openai
-      model: gpt-3.5-turbo
+        max_pages_per_request: 2
+    - provider: anthropic
+      model: claude-3-opus
       weight: 0.4
       config:
         max_tokens: 4096
-        temperature: 0.2
+        temperature: 0.1
+        max_pages_per_request: 3

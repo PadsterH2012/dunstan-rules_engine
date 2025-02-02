@@ -1,23 +1,27 @@
-FROM python:3.9-slim
-
-# Install curl for healthchecks
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Set PYTHONPATH to include the app directory
-ENV PYTHONPATH=/app
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-COPY requirements.txt ./
+# Copy requirements and install Python packages
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
-COPY app/ ./app/
+# Copy application code
+COPY ./app ./app
 
-EXPOSE 8000
+# Create temp directory for PDF chunks
+RUN mkdir -p /tmp/pdf-chunks && \
+    chmod 777 /tmp/pdf-chunks
 
-# Run the FastAPI app using Uvicorn with dynamic port
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PDF_TEMP_DIR=/tmp/pdf-chunks
+
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

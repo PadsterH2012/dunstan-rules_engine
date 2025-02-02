@@ -3,20 +3,20 @@
 openai:
   type: api
   api_keys:
-    processing: "OPENAI_PROCESSING_KEY"  # For text processing
+    processing: "OPENAI_PROCESSING_KEY"  # For initial processing
     validation: "OPENAI_VALIDATION_KEY"  # For validation
   models:
     processing:
-      - name: gpt-3.5-turbo
+      - name: gpt-4-vision-preview
         max_tokens: 4096
         temperature: 0.2
-        cost_per_token: 0.002
-      - name: gpt-4-turbo
+        cost_per_token: 0.01
+      - name: gpt-4-turbo-preview
         max_tokens: 4096
         temperature: 0.2
         cost_per_token: 0.01
     validation:
-      - name: gpt-4-turbo
+      - name: gpt-4-turbo-preview
         max_tokens: 4096
         temperature: 0.1
         cost_per_token: 0.01
@@ -28,23 +28,42 @@ anthropic:
     validation: "ANTHROPIC_VALIDATION_KEY"
   models:
     processing:
-      - name: claude-3-sonnet
+      - name: claude-3-opus
         max_tokens: 4096
         temperature: 0.2
+        vision: true
     validation:
       - name: claude-3-opus
         max_tokens: 4096
         temperature: 0.1
+        vision: false
 
-ollama:
-  type: local
-  host: "OLLAMA_HOST"  # References env var
+deepseek:
+  type: api
+  api_key: "DEEPSEEK_API_KEY"
   models:
     processing:
-      - name: mistral
-        gpu: true
+      - name: deepseek-vision
         max_tokens: 4096
+        temperature: 0.2
+        vision: true
     validation:
-      - name: mixtral
-        gpu: true
+      - name: deepseek-coder
         max_tokens: 4096
+        temperature: 0.1
+        vision: false
+
+openrouter:
+  type: api
+  api_key: "OPENROUTER_API_KEY"
+  models:
+    processing:
+      - name: anthropic/claude-3-opus
+        max_tokens: 4096
+        temperature: 0.2
+        vision: true
+    validation:
+      - name: google/gemini-pro
+        max_tokens: 4096
+        temperature: 0.1
+        vision: false

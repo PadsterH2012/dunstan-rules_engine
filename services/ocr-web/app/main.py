@@ -1,152 +1,253 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import httpx
-import asyncio
-from typing import Optional
-import json
 import os
+import asyncio
+import logging
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Dict
+import aiohttp
+import uuid
+import json
+from PIL import Image
+import PyPDF2
+import tempfile
 
-app = FastAPI(
-    title="OCR Web Interface",
-    description="Web interface for the OCR Engine service",
-    version="1.0.0"
-)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Add CORS middleware with specific settings for file uploads
+app = FastAPI(title="OCR Web Interface")
+
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=[
-        "Content-Type",
-        "Accept",
-        "Authorization",
-        "Origin",
-        "X-Requested-With",
-        "X-Job-ID",
-    ],
-    expose_headers=["X-Job-ID"],  # Allow client to read the job ID header
-    max_age=3600,  # Cache preflight requests for 1 hour
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Add trusted host middleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]
-)
-
-# Mount static files directory
+# Serve static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# OCR service configuration
-OCR_SERVICE_URL = os.getenv('OCR_ENGINE_URL', 'http://localhost:8001')
+# Configuration
+CHUNK_SIZE = int(os.getenv("PDF_CHUNK_SIZE", "20"))
+CHUNK_OVERLAP = int(os.getenv("PDF_CHUNK_OVERLAP", "2"))
+PROCESSING_AGENT_URL = os.getenv("PROCESSING_AGENT_URL", "http://processing-agent:8000")
+TEMP_DIR = os.getenv("PDF_TEMP_DIR", "/tmp/pdf-chunks")
 
-@app.get("/health")
-async def root_health():
-    """Root health check endpoint"""
-    return {"status": "healthy"}
+# Ensure temp directory exists
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=True)
-async def read_root():
-    """Serve the upload interface"""
-    return FileResponse('app/static/index.html')
+class PDFChunker:
+    def __init__(self, file_path: str, chunk_size: int, overlap: int):
+        self.file_path = file_path
+        self.chunk_size = chunk_size
+        self.overlap = overlap
+        self.total_pages = 0
+        self.chunks: List[Dict] = []
 
-@app.post("/api/extract")
-async def proxy_extract(file: UploadFile = File(...)):
-    """Proxy file upload to OCR service"""
-    try:
-        print(f"Received file upload: {file.filename}, content_type: {file.content_type}")
+    async def process(self) -> List[Dict]:
+        """Split PDF into overlapping chunks"""
+        try:
+            with open(self.file_path, 'rb') as file:
+                pdf = PyPDF2.PdfReader(file)
+                self.total_pages = len(pdf.pages)
+                
+                # Calculate chunks with overlap
+                start_page = 0
+                while start_page < self.total_pages:
+                    end_page = min(start_page + self.chunk_size, self.total_pages)
+                    
+                    # Create chunk directory
+                    chunk_id = str(uuid.uuid4())
+                    chunk_dir = os.path.join(TEMP_DIR, chunk_id)
+                    os.makedirs(chunk_dir, exist_ok=True)
+                    
+                    # Create new PDF for chunk
+                    chunk_path = os.path.join(chunk_dir, 'chunk.pdf')
+                    writer = PyPDF2.PdfWriter()
+                    
+                    # Add pages to chunk
+                    for page_num in range(start_page, end_page):
+                        writer.add_page(pdf.pages[page_num])
+                    
+                    # Save chunk
+                    with open(chunk_path, 'wb') as chunk_file:
+                        writer.write(chunk_file)
+                    
+                    self.chunks.append({
+                        'id': chunk_id,
+                        'path': chunk_path,
+                        'start_page': start_page + 1,
+                        'end_page': end_page,
+                        'total_pages': end_page - start_page
+                    })
+                    
+                    # Move start_page for next chunk, including overlap
+                    start_page = end_page - self.overlap
+
+                logger.info(f"Split PDF into {len(self.chunks)} chunks")
+                return self.chunks
+                
+        except Exception as e:
+            logger.error(f"Error splitting PDF: {str(e)}")
+            raise
+
+class ProcessingManager:
+    def __init__(self):
+        self.jobs: Dict[str, Dict] = {}
+
+    async def create_job(self, file_name: str, chunks: List[Dict]) -> str:
+        """Create new processing job"""
+        job_id = str(uuid.uuid4())
+        self.jobs[job_id] = {
+            'id': job_id,
+            'file_name': file_name,
+            'status': 'processing',
+            'chunks': chunks,
+            'results': [],
+            'completed_chunks': 0,
+            'total_chunks': len(chunks)
+        }
+        return job_id
+
+    async def process_chunk(self, job_id: str, chunk: Dict):
+        """Send chunk to processing agent"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{PROCESSING_AGENT_URL}/process",
+                    json={
+                        'job_id': job_id,
+                        'chunk_id': chunk['id'],
+                        'file_path': chunk['path'],
+                        'page_range': {
+                            'start': chunk['start_page'],
+                            'end': chunk['end_page']
+                        }
+                    }
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Processing failed: {await response.text()}")
+                    
+                    result = await response.json()
+                    self.jobs[job_id]['results'].append(result)
+                    self.jobs[job_id]['completed_chunks'] += 1
+                    
+                    # Check if all chunks are processed
+                    if self.jobs[job_id]['completed_chunks'] == self.jobs[job_id]['total_chunks']:
+                        await self.finalize_job(job_id)
         
-        # Read file content
-        content = await file.read()
-        print(f"File size: {len(content)} bytes")
+        except Exception as e:
+            logger.error(f"Error processing chunk: {str(e)}")
+            self.jobs[job_id]['status'] = 'error'
+            self.jobs[job_id]['error'] = str(e)
+
+    async def finalize_job(self, job_id: str):
+        """Combine results and clean up"""
+        try:
+            job = self.jobs[job_id]
+            
+            # Sort results by page number
+            job['results'].sort(key=lambda x: x['page_range']['start'])
+            
+            # Update status
+            job['status'] = 'completed'
+            
+            # Clean up chunk files
+            for chunk in job['chunks']:
+                try:
+                    os.remove(chunk['path'])
+                    os.rmdir(os.path.dirname(chunk['path']))
+                except Exception as e:
+                    logger.warning(f"Error cleaning up chunk {chunk['id']}: {str(e)}")
+                    
+        except Exception as e:
+            logger.error(f"Error finalizing job: {str(e)}")
+            self.jobs[job_id]['status'] = 'error'
+            self.jobs[job_id]['error'] = str(e)
+
+# Initialize processing manager
+processing_manager = ProcessingManager()
+
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None
+):
+    """Handle file upload and start processing"""
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        # Save uploaded file
+        temp_path = os.path.join(TEMP_DIR, f"upload_{uuid.uuid4()}.pdf")
+        with open(temp_path, 'wb') as temp_file:
+            content = await file.read()
+            temp_file.write(content)
         
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=300.0)) as client:  # 5 minute timeout
-            # Create a new UploadFile with the content
-            files = {'file': (file.filename, content, file.content_type)}
-            print(f"Sending request to OCR service: {OCR_SERVICE_URL}/extract")
-            
-            response = await client.post(f"{OCR_SERVICE_URL}/extract", files=files)
-            print(f"OCR service response status: {response.status_code}")
-            
-            # Get the response content
-            content = await response.aread()
-            
-            # Create a new response with the same headers and content
-            return Response(
-                content=content,
-                status_code=response.status_code,
-                headers=response.headers,
-                media_type=response.headers.get('content-type', 'application/json')
+        # Split into chunks
+        chunker = PDFChunker(temp_path, CHUNK_SIZE, CHUNK_OVERLAP)
+        chunks = await chunker.process()
+        
+        # Create processing job
+        job_id = await processing_manager.create_job(file.filename, chunks)
+        
+        # Start processing chunks
+        for chunk in chunks:
+            background_tasks.add_task(
+                processing_manager.process_chunk,
+                job_id,
+                chunk
             )
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail="Request timed out while processing the PDF. The file might be too large or complex."
-        )
+        
+        # Clean up uploaded file
+        os.remove(temp_path)
+        
+        return JSONResponse({
+            'job_id': job_id,
+            'file_name': file.filename,
+            'total_pages': chunker.total_pages,
+            'total_chunks': len(chunks)
+        })
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing PDF: {str(e)}"
-        )
+        logger.error(f"Error processing upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/progress-stream/{job_id}")
-async def proxy_progress_stream(job_id: str):
-    """Proxy progress stream from OCR service"""
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=None)) as client:  # No timeout for SSE
-            response = await client.get(
-                f"{OCR_SERVICE_URL}/progress-stream/{job_id}",
-                headers={"Accept": "text/event-stream"}
-            )
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Error from OCR service: {response.text}"
-                )
-            return StreamingResponse(
-                response.aiter_bytes(),
-                media_type="text/event-stream",
-                headers={
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'X-Accel-Buffering': 'no'  # Disable proxy buffering
-                }
-            )
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail="Connection to OCR service timed out"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error connecting to OCR service: {str(e)}"
-        )
+@app.get("/status/{job_id}")
+async def get_status(job_id: str):
+    """Get job status"""
+    if job_id not in processing_manager.jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = processing_manager.jobs[job_id]
+    return {
+        'id': job['id'],
+        'status': job['status'],
+        'file_name': job['file_name'],
+        'progress': {
+            'completed_chunks': job['completed_chunks'],
+            'total_chunks': job['total_chunks'],
+            'percentage': (job['completed_chunks'] / job['total_chunks']) * 100
+        },
+        'error': job.get('error')
+    }
 
-@app.get("/api/health")
-async def health_check():
-    """Check health of web interface and OCR service"""
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=5.0)) as client:  # 5 second timeout
-            ocr_health = await client.get(f"{OCR_SERVICE_URL}/health")
-            ocr_status = "healthy" if ocr_health.status_code == 200 else "unhealthy"
-            ocr_details = await ocr_health.json() if ocr_health.status_code == 200 else None
-    except httpx.TimeoutException:
-        ocr_status = "timeout"
-        ocr_details = None
-    except Exception as e:
-        ocr_status = "unreachable"
-        ocr_details = str(e)
+@app.get("/result/{job_id}")
+async def get_result(job_id: str):
+    """Get job results"""
+    if job_id not in processing_manager.jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = processing_manager.jobs[job_id]
+    if job['status'] != 'completed':
+        raise HTTPException(status_code=400, detail="Job not completed")
     
     return {
-        "status": "healthy",
-        "ocr_service": {
-            "status": ocr_status,
-            "details": ocr_details
-        }
+        'id': job['id'],
+        'file_name': job['file_name'],
+        'results': job['results']
     }
