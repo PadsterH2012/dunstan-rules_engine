@@ -1,0 +1,87 @@
+# Agent Model Configurations
+
+# OCR Processing Configurations
+ocr_fast:
+  provider: openai
+  model: gpt-3.5-turbo-vision  # Cheaper, faster model
+  config:
+    max_tokens: 4096
+    temperature: 0.2
+  fallback:
+    provider: anthropic
+    model: claude-3-sonnet
+
+ocr_accurate:
+  providers:
+    - provider: openai
+      model: gpt-4-vision-preview
+      weight: 0.4
+      config:
+        max_tokens: 4096
+        temperature: 0.1
+    - provider: anthropic
+      model: claude-3-opus
+      weight: 0.4
+      config:
+        max_tokens: 4096
+        temperature: 0.1
+    - provider: ollama
+      model: llava
+      weight: 0.2
+      config:
+        gpu: true
+
+# Validation Configurations
+validation_standard:
+  provider: openai
+  model: gpt-4-turbo-preview
+  config:
+    max_tokens: 4096
+    temperature: 0.1
+  fallback:
+    provider: anthropic
+    model: claude-3-opus
+
+validation_consensus:
+  providers:
+    - provider: openai
+      model: gpt-4-turbo-preview
+      weight: 0.5
+      config:
+        max_tokens: 4096
+        temperature: 0.1
+    - provider: anthropic
+      model: claude-3-opus
+      weight: 0.5
+      config:
+        max_tokens: 4096
+        temperature: 0.1
+
+# Cost-Optimized Processing
+ocr_budget:
+  provider: openai
+  model: gpt-3.5-turbo-vision
+  config:
+    max_tokens: 2048
+    temperature: 0.2
+  fallback:
+    provider: ollama
+    model: llava
+    config:
+      gpu: true
+
+# High-Performance Processing
+ocr_performance:
+  providers:
+    - provider: openai
+      model: gpt-4-vision-preview
+      weight: 0.6
+      config:
+        max_tokens: 4096
+        temperature: 0.1
+    - provider: openai
+      model: gpt-3.5-turbo-vision
+      weight: 0.4
+      config:
+        max_tokens: 4096
+        temperature: 0.2
