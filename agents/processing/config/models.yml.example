@@ -3,7 +3,7 @@
 # OCR Processing Configurations
 ocr_fast:
   provider: openai
-  model: gpt-3.5-turbo-vision  # Cheaper, faster model
+  model: gpt-3.5-turbo  # Base model for text processing
   config:
     max_tokens: 4096
     temperature: 0.2
@@ -14,7 +14,7 @@ ocr_fast:
 ocr_accurate:
   providers:
     - provider: openai
-      model: gpt-4-vision-preview
+      model: gpt-4-turbo  # More capable text processing
       weight: 0.4
       config:
         max_tokens: 4096
@@ -26,7 +26,7 @@ ocr_accurate:
         max_tokens: 4096
         temperature: 0.1
     - provider: ollama
-      model: llava
+      model: mistral  # Local text processing
       weight: 0.2
       config:
         gpu: true
@@ -34,7 +34,7 @@ ocr_accurate:
 # Validation Configurations
 validation_standard:
   provider: openai
-  model: gpt-4-turbo-preview
+  model: gpt-4-turbo
   config:
     max_tokens: 4096
     temperature: 0.1
@@ -45,7 +45,7 @@ validation_standard:
 validation_consensus:
   providers:
     - provider: openai
-      model: gpt-4-turbo-preview
+      model: gpt-4-turbo
       weight: 0.5
       config:
         max_tokens: 4096
@@ -60,13 +60,13 @@ validation_consensus:
 # Cost-Optimized Processing
 ocr_budget:
   provider: openai
-  model: gpt-3.5-turbo-vision
+  model: gpt-3.5-turbo
   config:
     max_tokens: 2048
     temperature: 0.2
   fallback:
     provider: ollama
-    model: llava
+    model: mistral
     config:
       gpu: true
 
@@ -74,13 +74,13 @@ ocr_budget:
 ocr_performance:
   providers:
     - provider: openai
-      model: gpt-4-vision-preview
+      model: gpt-4-turbo
       weight: 0.6
       config:
         max_tokens: 4096
         temperature: 0.1
     - provider: openai
-      model: gpt-3.5-turbo-vision
+      model: gpt-3.5-turbo
       weight: 0.4
       config:
         max_tokens: 4096

@@ -3,20 +3,20 @@
 openai:
   type: api
   api_keys:
-    processing: "OPENAI_PROCESSING_KEY"  # References env var for cheaper model
-    validation: "OPENAI_VALIDATION_KEY"  # References env var for more expensive model
+    processing: "OPENAI_PROCESSING_KEY"  # For text processing
+    validation: "OPENAI_VALIDATION_KEY"  # For validation
   models:
     processing:
-      - name: gpt-4-vision-preview
-        max_tokens: 4096
-        temperature: 0.2
-        cost_per_token: 0.01
-      - name: gpt-3.5-turbo-vision
+      - name: gpt-3.5-turbo
         max_tokens: 4096
         temperature: 0.2
         cost_per_token: 0.002
+      - name: gpt-4-turbo
+        max_tokens: 4096
+        temperature: 0.2
+        cost_per_token: 0.01
     validation:
-      - name: gpt-4-turbo-preview
+      - name: gpt-4-turbo
         max_tokens: 4096
         temperature: 0.1
         cost_per_token: 0.01
@@ -41,10 +41,10 @@ ollama:
   host: "OLLAMA_HOST"  # References env var
   models:
     processing:
-      - name: llava
+      - name: mistral
         gpu: true
         max_tokens: 4096
     validation:
-      - name: mistral
+      - name: mixtral
         gpu: true
         max_tokens: 4096
