@@ -4,7 +4,12 @@ A microservices-based system for extracting and processing rules from RPG source
 
 ## Features
 
-- **Processing Agent**: Handles PDF chunk processing using various AI providers. It provides an API for processing chunks, validating results, and collecting metrics.
+- **Processing Agent**: Handles PDF chunk processing using various AI providers
+  - FastAPI-based REST API for chunk processing and validation
+  - Modular provider system for multiple AI integrations
+  - Built-in result validation and error handling
+  - Metrics collection for monitoring and optimization
+  - Health check endpoint for system monitoring
 
 - **OCR Engine Service**
   - PDF to text conversion with parallel page processing
