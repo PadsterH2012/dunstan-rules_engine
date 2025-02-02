@@ -1,8 +1,10 @@
-version: "3.8"  # Specify the version of Docker Compose
-
 services:
   ocr-web:
-    # ... existing config ...
+    build:
+      context: ./services/ocr-web
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8000"
     volumes:
       - pdf-chunks:/tmp/pdf-chunks
 
