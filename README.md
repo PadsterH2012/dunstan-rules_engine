@@ -23,6 +23,11 @@ A microservices-based system for extracting and processing rules from RPG source
   - Real-time progress monitoring
   - Detailed OCR results with confidence scores
   - Clean, responsive design
+  - Robust disk space management
+    - Automatic temporary file cleanup
+    - Configurable file size limits
+    - Disk space monitoring
+    - Error handling for storage issues
 
 - **Validation Agents**
   - Human validation workflow
