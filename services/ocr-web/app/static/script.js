@@ -84,115 +84,76 @@ async function handleFile(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        // Create XMLHttpRequest for upload progress tracking
-        const xhr = new XMLHttpRequest();
-        const promise = new Promise((resolve, reject) => {
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const percent = (event.loaded / event.total) * 100;
-                    updateProgress(uploadProgress, percent, `Uploading: ${Math.round(percent)}%`);
-                }
-            };
-            
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(xhr.response);
-                } else {
-                    reject(new Error(`HTTP error! status: ${xhr.status}`));
-                }
-            };
-            
-            xhr.onerror = () => {
-                reject(new Error('Network error occurred'));
-            };
+        // Upload file
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
         });
 
-        // Open and send the request
-        xhr.open('POST', '/api/extract');
-        xhr.setRequestHeader('Accept', 'application/json');
-        xhr.responseType = 'json';
-        xhr.send(formData);
+        if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+        }
 
-        // Wait for the upload to complete
-        const response = await promise;
+        const responseData = await response.json();
+        console.log('Upload response:', responseData);
 
-        // Get job ID and start progress monitoring
-        const jobId = xhr.getResponseHeader('X-Job-ID');
+        // Get job ID from response
+        const jobId = responseData.job_id;
         if (!jobId) {
             throw new Error('No job ID received from server');
         }
 
         // Show initial processing message
-        processingProgress.style.display = 'block';
-        updateProgress(processingProgress, 0, 'PDF uploaded, initializing OCR processing...');
-        updateProgress(uploadProgress, 100, 'Upload complete, processing started');
+        updateProgress(processingProgress, 0, 'PDF uploaded, starting processing...');
+        updateProgress(uploadProgress, 100, 'Upload complete');
 
-        // Connect to SSE stream for progress updates
-        const eventSource = new EventSource(`/api/progress-stream/${jobId}`);
-        
-        eventSource.onopen = () => {
-            console.log('Progress stream connected');
-        };
-        
-        eventSource.onerror = (error) => {
-            console.error('Progress stream error:', error);
-            eventSource.close();
-            updateProgress(processingProgress, 100, 'Error connecting to progress stream');
-        };
-        
-        // Store the response data
-        const responseData = response;
-        
-        // Set up progress event handling
-        eventSource.addEventListener('progress', async (e) => {
-            console.log('Progress event received:', e.data);
-            const progress = JSON.parse(e.data);
-            let statusMessage = `Processing page ${progress.processed} of ${progress.total}`;
-            if (progress.estimated_time) {
-                statusMessage += ` (${progress.estimated_time.toFixed(1)}s remaining)`;
-            }
-            statusMessage += '\n\nThis may take several minutes for large documents.';
-            statusMessage += '\nTesseract OCR engine is actively processing your document.';
-            statusMessage += '\nPlease do not close this window.';
-            
-            updateProgress(processingProgress, progress.percent, statusMessage);
-
-            if (progress.status === 'completed') {
-                console.log('Processing completed, getting results...');
-                eventSource.close();
+        // Start polling for status
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusResponse = await fetch(`/status/${jobId}`);
+                if (!statusResponse.ok) {
+                    throw new Error('Failed to get status');
+                }
+                const statusData = await statusResponse.json();
                 
-                try {
-                    // Use the stored response data
-                    const data = responseData;
-                    console.log('Response data received:', data);
+                const percent = (statusData.progress.completed_chunks / statusData.progress.total_chunks) * 100;
+                const statusMessage = `Processing chunks: ${statusData.progress.completed_chunks}/${statusData.progress.total_chunks}`;
+                updateProgress(processingProgress, percent, statusMessage);
+
+                if (statusData.status === 'completed') {
+                    clearInterval(pollInterval);
+                    
+                    // Get final results
+                    const resultResponse = await fetch(`/result/${jobId}`);
+                    if (!resultResponse.ok) {
+                        throw new Error('Failed to get results');
+                    }
+                    const resultData = await resultResponse.json();
                     
                     // Display results
                     result.style.display = 'block';
                     result.innerHTML = `
                         <h3>Results:</h3>
-                        <p>Pages: ${data.metadata.num_pages}</p>
-                        <p>Confidence: ${(data.confidence * 100).toFixed(1)}%</p>
-                        <p>Processing Time: ${data.processing_time.toFixed(2)}s</p>
-                        <h4>Extracted Text:</h4>
-                        <pre>${data.text}</pre>
+                        <p>File: ${resultData.file_name}</p>
+                        <pre>${JSON.stringify(resultData.results, null, 2)}</pre>
                     `;
 
                     // Clear progress displays
                     updateProgress(uploadProgress, 100, 'Upload complete');
                     updateProgress(processingProgress, 100, 'Processing complete');
-                } catch (error) {
-                    console.error('Error getting results:', error);
-                    updateProgress(processingProgress, 100, 'Error getting results: ' + error.message);
+                } else if (statusData.status === 'error') {
+                    clearInterval(pollInterval);
+                    throw new Error(statusData.error || 'Processing failed');
                 }
+            } catch (error) {
+                clearInterval(pollInterval);
+                console.error('Status check error:', error);
+                updateProgress(processingProgress, 100, `Error: ${error.message}`);
             }
-        });
-
-        // Log initial connection
-        console.log('Starting OCR processing with job ID:', jobId);
+        }, 1000);
 
     } catch (error) {
         console.error('Error:', error);
-        uploadProgress.querySelector('.status').textContent = `Error: ${error.message}`;
-        uploadProgress.querySelector('.status').classList.add('error');
+        updateProgress(uploadProgress, 100, `Error: ${error.message}`);
     }
 }
