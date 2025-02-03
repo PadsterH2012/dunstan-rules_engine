@@ -239,13 +239,16 @@ class ProcessingManager:
             # Update status
             job['status'] = 'completed'
             
-            # Clean up chunk files
+            # Clean up chunk files if they still exist
             for chunk in job['chunks']:
                 try:
-                    os.remove(chunk['path'])
-                    os.rmdir(os.path.dirname(chunk['path']))
+                    if os.path.exists(chunk['path']):
+                        os.remove(chunk['path'])
+                        chunk_dir = os.path.dirname(chunk['path'])
+                        if os.path.exists(chunk_dir) and not os.listdir(chunk_dir):
+                            os.rmdir(chunk_dir)
                 except Exception as e:
-                    logger.warning(f"Error cleaning up chunk {chunk['id']}: {str(e)}")
+                    logger.debug(f"Chunk {chunk['id']} already cleaned up or error: {str(e)}")
                     
         except Exception as e:
             logger.error(f"Error finalizing job: {str(e)}")
