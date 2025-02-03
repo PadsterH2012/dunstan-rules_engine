@@ -92,14 +92,42 @@ class PDFChunker:
                 pdf = PyPDF2.PdfReader(file)
                 self.total_pages = len(pdf.pages)
                 
-                # Calculate chunks with overlap
+                # For small PDFs (less than chunk_size), create a single chunk
+                if self.total_pages <= self.chunk_size:
+                    chunk_id = str(uuid.uuid4())
+                    chunk_dir = os.path.join(self.chunk_dir, chunk_id)
+                    os.makedirs(chunk_dir, exist_ok=True)
+                    
+                    chunk_path = os.path.join(chunk_dir, 'chunk.pdf')
+                    writer = PyPDF2.PdfWriter()
+                    
+                    for page_num in range(self.total_pages):
+                        writer.add_page(pdf.pages[page_num])
+                    
+                    with open(chunk_path, 'wb') as chunk_file:
+                        writer.write(chunk_file)
+                    
+                    self.chunks.append({
+                        'id': chunk_id,
+                        'path': chunk_path,
+                        'start_page': 1,
+                        'end_page': self.total_pages,
+                        'total_pages': self.total_pages
+                    })
+                    return self.chunks
+                
+                # For larger PDFs, create overlapping chunks
                 start_page = 0
                 while start_page < self.total_pages:
-                    end_page = min(start_page + self.chunk_size, self.total_pages)
-                    
                     # Check disk space before creating chunk
                     if not check_disk_space():
                         raise Exception("Insufficient disk space for creating PDF chunk")
+                    
+                    end_page = min(start_page + self.chunk_size, self.total_pages)
+                    
+                    # Skip creating a new chunk if it would be too small
+                    if end_page - start_page < 2 and len(self.chunks) > 0:
+                        break
                     
                     # Create chunk directory
                     chunk_id = str(uuid.uuid4())
@@ -133,7 +161,9 @@ class PDFChunker:
                     })
                     
                     # Move start_page for next chunk, including overlap
-                    start_page = end_page - self.overlap
+                    # Ensure we make meaningful progress
+                    progress = max(1, self.chunk_size - self.overlap)
+                    start_page += progress
 
                 logger.info(f"Split PDF into {len(self.chunks)} chunks")
                 return self.chunks
