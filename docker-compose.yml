@@ -6,34 +6,67 @@ services:
     ports:
       - "8080:8000"
     environment:
-      - PDF_TEMP_DIR=/tmp/pdf-chunks
-      - OCR_TEMP_DIR=/tmp/pdf-chunks
+      - PDF_TEMP_DIR=${PDF_TEMP_DIR}
+      - OCR_TEMP_DIR=${PDF_TEMP_DIR}
       - PROCESSING_AGENT_URL=http://processing-agent:8000
+      - LOG_LEVEL=${LOG_LEVEL}
+      - MAX_PAGES_PER_REQUEST=${MAX_PAGES_PER_REQUEST}
     volumes:
       - pdf-chunks:/tmp/pdf-chunks
+    depends_on:
+      processing-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   processing-agent:
     build: ./agents/processing
     environment:
-      - PDF_TEMP_DIR=/tmp/pdf-chunks
-      - OCR_TEMP_DIR=/tmp/pdf-chunks
+      - PDF_TEMP_DIR=${PDF_TEMP_DIR}
+      - OCR_TEMP_DIR=${PDF_TEMP_DIR}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - OPENAI_PROCESSING_KEY=${OPENAI_PROCESSING_KEY}
       - OPENAI_ORG_ID=${OPENAI_ORG_ID}
-      - PROCESSING_DEFAULT_MODEL=gpt-4-mini
-      - MAX_TOKENS=1024
-      - TEMPERATURE=0.3
-      - CONFIDENCE_THRESHOLD=0.6
+      - PROCESSING_DEFAULT_PROVIDER=${PROCESSING_DEFAULT_PROVIDER}
+      - PROCESSING_DEFAULT_MODEL=${PROCESSING_DEFAULT_MODEL}
+      - PROCESSING_FALLBACK_PROVIDER=${PROCESSING_FALLBACK_PROVIDER}
+      - PROCESSING_FALLBACK_MODEL=${PROCESSING_FALLBACK_MODEL}
+      - CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD}
+      - PAGE_PROCESSING_TIMEOUT=${PAGE_PROCESSING_TIMEOUT}
+      - MAX_PAGES_PER_REQUEST=${MAX_PAGES_PER_REQUEST}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - pdf-chunks:/tmp/pdf-chunks
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    init: true
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
 volumes:
   pdf-chunks:

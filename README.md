@@ -50,8 +50,16 @@ The system consists of several microservices:
 ## Infrastructure
 
 - Redis for caching and message queues
+  - Password authentication
+  - Configurable connection settings
+  - Health monitoring
 - Vector database for efficient text search
 - Docker containerization for all services
+- Environment-based Configuration
+  - Centralized environment variable management
+  - Secure credential handling
+  - Service-specific configurations
+  - Support for multiple environments (dev/prod)
 
 ## Development
 
