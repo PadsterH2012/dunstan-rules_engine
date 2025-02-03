@@ -210,12 +210,18 @@ class ProcessingManager:
                         raise Exception(f"Processing failed: {await response.text()}")
                     
                     result = await response.json()
-                    self.jobs[job_id]['results'].append(result)
-                    self.jobs[job_id]['completed_chunks'] += 1
-                    
-                    # Check if all chunks are processed
-                    if self.jobs[job_id]['completed_chunks'] == self.jobs[job_id]['total_chunks']:
-                        await self.finalize_job(job_id)
+                    if result['status'] == 'success':
+                        self.jobs[job_id]['results'].append({
+                            'result': result['result'],
+                            'page_range': result['page_range']
+                        })
+                        self.jobs[job_id]['completed_chunks'] += 1
+                        
+                        # Check if all chunks are processed
+                        if self.jobs[job_id]['completed_chunks'] == self.jobs[job_id]['total_chunks']:
+                            await self.finalize_job(job_id)
+                    else:
+                        raise Exception(result['message'])
         
         except Exception as e:
             logger.error(f"Error processing chunk: {str(e)}")
