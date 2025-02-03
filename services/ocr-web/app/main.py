@@ -52,11 +52,13 @@ CHUNK_OVERLAP = int(os.getenv("PDF_CHUNK_OVERLAP", "2"))
 PROCESSING_AGENT_URL = os.getenv("PROCESSING_AGENT_URL", "http://processing-agent:8000")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB default
 MIN_DISK_SPACE = int(os.getenv("MIN_DISK_SPACE", str(500 * 1024 * 1024)))  # 500MB default
+TEMP_DIR = os.getenv("OCR_TEMP_DIR", "/app/tmp")  # Use mounted volume for temp files
 
 @contextmanager
 def temporary_directory():
     """Create a temporary directory that's automatically cleaned up"""
-    temp_dir = tempfile.mkdtemp(prefix='ocr_')
+    temp_dir = os.path.join(TEMP_DIR, f'ocr_{uuid.uuid4().hex}')
+    os.makedirs(temp_dir, exist_ok=True)
     try:
         yield temp_dir
     finally:
@@ -65,7 +67,7 @@ def temporary_directory():
         except Exception as e:
             logger.error(f"Error cleaning up temporary directory {temp_dir}: {e}")
 
-def check_disk_space(path: str = '/tmp') -> bool:
+def check_disk_space(path: str = TEMP_DIR) -> bool:
     """Check if there's enough disk space available"""
     stats = shutil.disk_usage(path)
     return stats.free >= MIN_DISK_SPACE

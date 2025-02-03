@@ -5,14 +5,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8000"
+    environment:
+      - PDF_TEMP_DIR=/app/tmp
+      - OCR_TEMP_DIR=/app/tmp
     volumes:
+      - ./tmp:/app/tmp
       - pdf-chunks:/tmp/pdf-chunks
 
   processing-agent:
     build: ./agents/processing
     environment:
-      - PDF_TEMP_DIR=/tmp/pdf-chunks
+      - PDF_TEMP_DIR=/app/tmp
+      - OCR_TEMP_DIR=/app/tmp
     volumes:
+      - ./tmp:/app/tmp
       - pdf-chunks:/tmp/pdf-chunks
     depends_on:
       - redis
