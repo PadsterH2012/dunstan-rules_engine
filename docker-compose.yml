@@ -6,19 +6,24 @@ services:
     ports:
       - "8080:8000"
     environment:
-      - PDF_TEMP_DIR=/app/tmp
-      - OCR_TEMP_DIR=/app/tmp
+      - PDF_TEMP_DIR=/tmp/pdf-chunks
+      - OCR_TEMP_DIR=/tmp/pdf-chunks
+      - PROCESSING_AGENT_URL=http://processing-agent:8000
     volumes:
-      - ./tmp:/app/tmp
       - pdf-chunks:/tmp/pdf-chunks
 
   processing-agent:
     build: ./agents/processing
     environment:
-      - PDF_TEMP_DIR=/app/tmp
-      - OCR_TEMP_DIR=/app/tmp
+      - PDF_TEMP_DIR=/tmp/pdf-chunks
+      - OCR_TEMP_DIR=/tmp/pdf-chunks
+      - OPENAI_PROCESSING_KEY=${OPENAI_PROCESSING_KEY}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID}
+      - PROCESSING_DEFAULT_MODEL=gpt-4-mini
+      - MAX_TOKENS=1024
+      - TEMPERATURE=0.3
+      - CONFIDENCE_THRESHOLD=0.6
     volumes:
-      - ./tmp:/app/tmp
       - pdf-chunks:/tmp/pdf-chunks
     depends_on:
       - redis
@@ -27,6 +32,8 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
 
 volumes:
   pdf-chunks:

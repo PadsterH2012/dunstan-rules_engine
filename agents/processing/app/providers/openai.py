@@ -9,9 +9,9 @@ class OpenAIProvider(BaseProvider):
         super().__init__()
         self.api_key = os.getenv("OPENAI_PROCESSING_KEY")
         self.org_id = os.getenv("OPENAI_ORG_ID")
-        self.model = os.getenv("PROCESSING_DEFAULT_MODEL", "gpt-4-vision-preview")
-        self.max_tokens = 2048  # Budget configuration
-        self.temperature = 0.2
+        self.model = os.getenv("PROCESSING_DEFAULT_MODEL", "gpt-4-mini")
+        self.max_tokens = 1024  # More budget-friendly for mini model
+        self.temperature = 0.3  # Slightly higher for better generalization
         self.total_tokens_used = 0
         self.total_requests = 0
         self.successful_requests = 0
@@ -55,7 +55,7 @@ class OpenAIProvider(BaseProvider):
                             "type": "image",
                             "image_url": {
                                 "url": f"data:application/pdf;base64,{base64_pdf}",
-                                "detail": "low"  # Budget optimization
+                                "detail": "auto"  # Mini model handles detail level differently
                             }
                         }
                     ]
@@ -157,6 +157,6 @@ class OpenAIProvider(BaseProvider):
 
     def _calculate_cost(self) -> float:
         """Calculate estimated cost based on token usage"""
-        # GPT-4 Vision pricing (as of 2024)
-        cost_per_token = 0.01 / 1000  # $0.01 per 1K tokens
+        # GPT-4 Mini pricing
+        cost_per_token = 0.005 / 1000  # $0.005 per 1K tokens (example rate)
         return (self.total_tokens_used * cost_per_token)
