@@ -52,7 +52,7 @@ CHUNK_OVERLAP = int(os.getenv("PDF_CHUNK_OVERLAP", "2"))
 PROCESSING_AGENT_URL = os.getenv("PROCESSING_AGENT_URL", "http://processing-agent:8000")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB default
 MIN_DISK_SPACE = int(os.getenv("MIN_DISK_SPACE", str(500 * 1024 * 1024)))  # 500MB default
-TEMP_DIR = os.getenv("OCR_TEMP_DIR", "/app/tmp")  # Use mounted volume for temp files
+TEMP_DIR = os.getenv("OCR_TEMP_DIR", "/tmp/pdf-chunks")  # Use mounted volume for temp files
 
 @contextmanager
 def temporary_directory():
@@ -193,13 +193,16 @@ class ProcessingManager:
     async def process_chunk(self, job_id: str, chunk: Dict):
         """Send chunk to processing agent"""
         try:
+            # Update path to use shared volume path
+            shared_path = chunk['path'].replace(TEMP_DIR, '/tmp/pdf-chunks')
+            
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{PROCESSING_AGENT_URL}/process",
                     json={
                         'job_id': job_id,
                         'chunk_id': chunk['id'],
-                        'file_path': chunk['path'],
+                        'file_path': shared_path,
                         'page_range': {
                             'start': chunk['start_page'],
                             'end': chunk['end_page']
